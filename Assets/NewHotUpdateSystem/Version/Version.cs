@@ -188,32 +188,6 @@ namespace GF.HotUpdateSystem.New
         }
         
         /// <summary>
-        /// 获取版本更新类型
-        /// </summary>
-        /// <param name="localVersion">本地版本</param>
-        /// <param name="serverVersion">服务器版本</param>
-        /// <returns>更新类型</returns>
-        public static UpdateType GetUpdateType(string localVersion, string serverVersion)
-        {
-            var local = ParseVersion(localVersion);
-            var server = ParseVersion(serverVersion);
-            
-            if (local.CompareTo(server) == 0)
-                return UpdateType.None;
-            
-            if (local.Major != server.Major)
-                return UpdateType.Major; // 主版本更新，通常需要强制更新
-            
-            if (local.Minor != server.Minor)
-                return UpdateType.Minor; // 次版本更新，可能需要强制更新
-            
-            if (local.Patch != server.Patch)
-                return UpdateType.Patch; // 补丁更新，通常可以热更新
-            
-            return UpdateType.Build; // 构建号更新，通常可以热更新
-        }
-        
-        /// <summary>
         /// 格式化版本号显示
         /// </summary>
         /// <param name="versionString">版本号字符串</param>
@@ -237,85 +211,5 @@ namespace GF.HotUpdateSystem.New
             var match = VersionRegex.Match(versionString.Trim());
             return match.Success;
         }
-    }
-    
-    /// <summary>
-    /// 更新类型
-    /// </summary>
-    public enum UpdateType
-    {
-        None,   // 无需更新
-        Build,  // 构建号更新
-        Patch,  // 补丁更新
-        Minor,  // 次版本更新
-        Major   // 主版本更新
-    }
-    
-    /// <summary>
-    /// 版本兼容性配置
-    /// </summary>
-    [CreateAssetMenu(fileName = "VersionConfig", menuName = "GF/HotUpdateSystem/VersionConfig")]
-    public class VersionConfig : ScriptableObject
-    {
-        [Header("版本兼容性设置")]
-        [Tooltip("版本兼容性检查模式")]
-        public VersionCompatibilityMode CompatibilityMode = VersionCompatibilityMode.MajorMinor;
-        
-        [Tooltip("最低要求版本号")]
-        public string MinRequiredVersion = "v1.0.0";
-        
-        [Tooltip("是否启用版本兼容性检查")]
-        public bool EnableVersionCheck = true;
-        
-        [Tooltip("版本不兼容时的处理方式")]
-        public VersionIncompatibleAction IncompatibleAction = VersionIncompatibleAction.ForceUpdate;
-        
-        [Header("版本号格式")]
-        [Tooltip("支持的版本号格式示例")]
-        public string[] SupportedFormats = {
-            "v1.0.0",
-            "1.0.0",
-            "v1.0.0.123",
-            "v1.0.0-alpha",
-            "v1.0.0-beta.1"
-        };
-        
-        /// <summary>
-        /// 检查版本兼容性
-        /// </summary>
-        public bool CheckVersionCompatibility(string localVersion, string serverVersion)
-        {
-            if (!EnableVersionCheck)
-                return true;
-                
-            return VersionParser.IsVersionCompatible(localVersion, serverVersion, CompatibilityMode);
-        }
-        
-        /// <summary>
-        /// 检查是否需要强制更新
-        /// </summary>
-        public bool CheckForceUpdate(string localVersion, string serverVersion)
-        {
-            return VersionParser.RequiresForceUpdate(localVersion, serverVersion, MinRequiredVersion);
-        }
-        
-        /// <summary>
-        /// 获取更新类型
-        /// </summary>
-        public UpdateType GetUpdateType(string localVersion, string serverVersion)
-        {
-            return VersionParser.GetUpdateType(localVersion, serverVersion);
-        }
-    }
-    
-    /// <summary>
-    /// 版本不兼容时的处理方式
-    /// </summary>
-    public enum VersionIncompatibleAction
-    {
-        ForceUpdate,     // 强制更新
-        ShowWarning,     // 显示警告
-        SkipUpdate,      // 跳过更新
-        RestartApp       // 重启应用
     }
 }
