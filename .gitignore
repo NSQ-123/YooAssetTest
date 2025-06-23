@@ -1,0 +1,13 @@
+﻿Assembly-CSharp.csproj
+Library
+.idea
+*.csproj
+*.user
+Temp
+obj
+Logs
+*.sln
+UserSettings
+Bundles
+ProjectSettings/SceneTemplateSettings.json
+yoo
