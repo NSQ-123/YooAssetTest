@@ -15,10 +15,10 @@ MonoBehaviour:
   MainServerURL: http://127.0.0.1
   FallbackServerURL: http://127.0.0.1
   AppVersion: v1.0
-  AndroidCDN: /CDN/Android/{0}
-  IOSCDN: /CDN/IPhone/{0}
-  WebGLCDN: /CDN/WebGL/{0}
-  PCCDN: /CDN/PC/{0}
+  AndroidCDN: assets/Android/{0}
+  IOSCDN: assets/IPhone/{0}
+  WebGLCDN: assets/WebGL/{0}
+  PCCDN: assets/PC/{0}
   MaxConcurrentDownloads: 10
   DownloadRetryCount: 3
   AutoClearCache: 1
