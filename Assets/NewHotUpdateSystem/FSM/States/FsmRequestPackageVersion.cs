@@ -32,7 +32,7 @@ namespace GF.HotUpdateSystem.New
             }
             
             var serverVersion = operation.PackageVersion;
-            if (playMode is  EPlayMode.HostPlayMode or EPlayMode.WebPlayMode)
+            if (false && playMode is  EPlayMode.HostPlayMode or EPlayMode.WebPlayMode)
             {
                 var localVersion = package.GetPackageVersion();
                 Debug.Log($"版本对比检查: 本地={localVersion}, 服务器={serverVersion}");

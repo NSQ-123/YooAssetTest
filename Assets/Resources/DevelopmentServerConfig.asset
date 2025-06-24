@@ -12,9 +12,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 77cd6d6b489aa42f09b9c1ad02929d26, type: 3}
   m_Name: DevelopmentServerConfig
   m_EditorClassIdentifier: 
-  MainServerURL: http://127.0.0.1
-  FallbackServerURL: http://127.0.0.1
-  AppVersion: v1.0
+  MainServerURL: http://127.0.0.1:3000/
+  FallbackServerURL: http://127.0.0.1:3000/
+  AppVersion: 1.0.0
   AndroidCDN: assets/Android/{0}
   IOSCDN: assets/IPhone/{0}
   WebGLCDN: assets/WebGL/{0}

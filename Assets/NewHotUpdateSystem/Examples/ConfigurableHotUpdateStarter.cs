@@ -200,9 +200,20 @@ namespace GF.HotUpdateSystem.New
             OnHotUpdateCompleted?.Invoke();
             
             //TODO:切换到主页面场景
-            YooAssets.LoadSceneAsync("scene_home");
+            StartCoroutine(Load(gamePackage));
         }
 
+        IEnumerator Load(ResourcePackage package)
+        {
+            AssetHandle handle = package.LoadAssetAsync<GameObject>("Assets/Res/Prefabs/Sphere.prefab");
+            yield return handle;
+            GameObject go = handle.InstantiateSync();
+            Debug.Log($"Prefab name is {go.name}");
+        }
+        
+        
+        
+        
         /// <summary>
         /// 获取当前配置信息
         /// </summary>
