@@ -377,3 +377,131 @@ NewHotUpdateSystem 在保持 YooAsset 原有架构的基础上，提供了更便
 - ✅ 多种使用模式
 - ✅ **清晰的API设计**：需要明确指定PlayMode，避免混淆
 - ✅ **灵活的模式选择**：支持多种PlayMode适应不同场景 
+
+## 🌐 网络请求实现分析
+
+### RequestPackageVersionAsync() 深度解析
+
+#### 📋 完整调用链路
+```
+package.RequestPackageVersionAsync()
+    ↓
+RequestPackageVersionImplOperation (ResourcePackage/Operation/)
+    ↓
+PlayModeImpl.RequestPackageVersionAsync()
+    ↓
+FileSystem.RequestPackageVersionAsync() 
+    ↓ (根据不同的文件系统类型)
+├── DefaultCacheFileSystem → DCFSRequestPackageVersionOperation
+├── DefaultWebRemoteFileSystem → DWRFSRequestPackageVersionOperation  
+├── DefaultWebServerFileSystem → DWSFSRequestPackageVersionOperation
+└── DefaultBuildinFileSystem → DBFSRequestPackageVersionOperation
+    ↓
+具体的RequestXXXPackageVersionOperation
+    ↓
+UnityWebTextRequestOperation
+    ↓
+UnityWebRequestOperation (基类)
+    ↓
+UnityWebRequest (Unity原生网络请求)
+```
+
+#### 🔧 核心实现机制
+
+**1. UnityWebTextRequestOperation**
+```csharp
+private void CreateWebRequest()
+{
+    _webRequest = DownloadSystemHelper.NewUnityWebRequestGet(_requestURL);
+    DownloadHandlerBuffer handler = new DownloadHandlerBuffer();
+    _webRequest.downloadHandler = handler;
+    _webRequest.disposeDownloadHandlerOnDispose = true;
+    _requestOperation = _webRequest.SendWebRequest();
+}
+```
+
+**2. URL构建过程**
+```csharp
+private string GetWebRequestURL(string fileName)
+{
+    string url;
+    if (_requestCount % 2 == 0)
+        url = _fileSystem.RemoteServices.GetRemoteMainURL(fileName);
+    else
+        url = _fileSystem.RemoteServices.GetRemoteFallbackURL(fileName);
+
+    if (_appendTimeTicks)
+        return $"{url}?{System.DateTime.UtcNow.Ticks}";
+    else
+        return url;
+}
+```
+
+**3. IRemoteServices接口实现**
+```csharp
+private class RemoteServices : IRemoteServices
+{
+    private readonly string _defaultHostServer;
+    private readonly string _fallbackHostServer;
+
+    public RemoteServices(string defaultHostServer, string fallbackHostServer)
+    {
+        _defaultHostServer = defaultHostServer;
+        _fallbackHostServer = fallbackHostServer;
+    }
+    
+    string IRemoteServices.GetRemoteMainURL(string fileName)
+    {
+        return $"{_defaultHostServer}/{fileName}";
+    }
+    
+    string IRemoteServices.GetRemoteFallbackURL(string fileName)
+    {
+        return $"{_fallbackHostServer}/{fileName}";
+    }
+}
+```
+
+#### 🔗 URL构建示例
+
+根据配置文件 `DevelopmentServerConfig.asset`：
+
+```
+MainServerURL: http://127.0.0.1:3000/
+FallbackServerURL: http://127.0.0.1:3000/
+```
+
+假设包名为 `DefaultPackage`，最终请求的URL会是：
+```
+http://127.0.0.1:3000/assets/PC/DefaultPackage_version.txt?6371234567890123456
+```
+
+#### 📁 文件名生成
+```csharp
+string fileName = YooAssetSettingsData.GetPackageVersionFileName(_fileSystem.PackageName);
+// 生成类似: "DefaultPackage_version.txt"
+```
+
+#### 🔄 请求流程详解
+
+1. **初始化阶段**：创建 RequestPackageVersionImplOperation，根据运行模式选择对应的文件系统
+2. **URL构建阶段**：获取包版本文件名，通过 IRemoteServices 构建完整URL，可选择添加时间戳防止缓存
+3. **网络请求阶段**：创建 UnityWebTextRequestOperation，使用 UnityWebRequest 发送GET请求，设置 DownloadHandlerBuffer 接收文本数据
+4. **结果处理阶段**：检查请求状态，解析返回的版本号，返回结果或错误信息
+
+#### 🎯 关键特点
+
+- 异步操作：所有网络请求都是异步的，通过 OperationSystem 管理
+- 容错机制：支持主服务器和备用服务器轮询
+- 缓存控制：可添加时间戳防止浏览器缓存
+- 超时控制：支持请求超时设置
+- 错误重试：通过 WebRequestCounter 记录失败次数
+
+#### 💡 为什么难以直接找到WebRequest
+
+YooAsset的网络请求是通过以下层次封装的：
+- 最底层：UnityWebRequest (Unity原生)
+- 中间层：UnityWebRequestOperation (YooAsset封装)
+- 业务层：各种具体的Request操作类
+
+这种设计使得网络请求逻辑被很好地封装和抽象，便于统一管理和扩展。
