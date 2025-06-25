@@ -1,5 +1,5 @@
 using System;
-using System.Threading.Tasks;
+using Cysharp.Threading.Tasks;
 
 namespace GF.AstSystem
 {
@@ -44,9 +44,9 @@ namespace GF.AstSystem
         int RefCount { get; }
         
         /// <summary>
-        /// 异步Task
+        /// 异步UniTask
         /// </summary>
-        Task Task { get; }
+        UniTask Task { get; }
         
         /// <summary>
         /// 增加引用计数
@@ -66,11 +66,11 @@ namespace GF.AstSystem
         /// <summary>
         /// 等待异步完成
         /// </summary>
-        Task WaitForCompletionAsync();
+        UniTask WaitForCompletionAsync();
         
         /// <summary>
         /// 等待异步完成并返回资源
         /// </summary>
-        Task<T> GetAssetAsync<T>() where T : UnityEngine.Object;
+        UniTask<T> GetAssetAsync<T>() where T : UnityEngine.Object;
     }
 } 

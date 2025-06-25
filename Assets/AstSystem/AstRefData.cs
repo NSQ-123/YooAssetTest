@@ -1,4 +1,4 @@
-#define UNITY_ADDRESSABLES
+//#define UNITY_ADDRESSABLES
 using System;
 using UnityEngine;
 using UnityEngine.ResourceManagement.AsyncOperations;
@@ -46,11 +46,6 @@ namespace GF.AstSystem
         /// 引用计数
         /// </summary>
         public int RefCount { get; private set; }
-        
-        /// <summary>
-        /// 卸载模式
-        /// </summary>
-        public UnloadMode UnloadMode { get; set; }
         
         /// <summary>
         /// 是否已释放
@@ -103,17 +98,6 @@ namespace GF.AstSystem
             HandleYoo?.Release();
             HandleYoo = null;
             AssetType = null;
-        }
-
-        /// <summary>
-        /// 清空所有引用
-        /// </summary>
-        public void Clear()
-        {
-            while (RefCount > 0)
-            {
-                Release();
-            }
         }
     }
 } 

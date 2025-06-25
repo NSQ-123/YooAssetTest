@@ -1,7 +1,9 @@
 using System.Collections.Generic;
 using System.Threading;
+using Cysharp.Threading.Tasks;
 using UnityEngine;
 using GF.AstSystem;
+using UnityEngine.U2D;
 
 namespace GF.AstSystem.Examples
 {
@@ -180,6 +182,7 @@ namespace GF.AstSystem.Examples
         {
             var astSystem = AstSystem.Instance;
             astSystem.ClearAll();
+            
             Debug.Log("所有资源已清空");
         }
 
