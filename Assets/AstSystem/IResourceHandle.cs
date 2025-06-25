@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 namespace GF.AstSystem
 {
     /// <summary>
-    /// 统一资源句柄
+    /// 统一资源句柄接口
     /// </summary>
     public interface IResourceHandle : IDisposable
     {
@@ -17,11 +17,6 @@ namespace GF.AstSystem
         /// 是否加载完成
         /// </summary>
         bool IsDone { get; }
-        
-        /// <summary>
-        /// 加载进度
-        /// </summary>
-        float Progress { get; }
         
         /// <summary>
         /// 是否有效
@@ -39,9 +34,9 @@ namespace GF.AstSystem
         string Address { get; }
         
         /// <summary>
-        /// 卸载模式
+        /// 资源类型
         /// </summary>
-        UnloadMode UnloadMode { get; }
+        Type AssetType { get; }
         
         /// <summary>
         /// 引用计数
@@ -54,11 +49,6 @@ namespace GF.AstSystem
         Task Task { get; }
         
         /// <summary>
-        /// 完成回调
-        /// </summary>
-        event Action<IResourceHandle> Completed;
-        
-        /// <summary>
         /// 增加引用计数
         /// </summary>
         void AddRef();
@@ -67,6 +57,11 @@ namespace GF.AstSystem
         /// 减少引用计数
         /// </summary>
         void Release();
+        
+        /// <summary>
+        /// 强制释放资源
+        /// </summary>
+        void ForceRelease();
         
         /// <summary>
         /// 等待异步完成

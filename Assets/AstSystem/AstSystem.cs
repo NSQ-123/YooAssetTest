@@ -1,5 +1,7 @@
+#define UNITY_ADDRESSABLES
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -11,7 +13,6 @@ using UnityEngine.ResourceManagement.AsyncOperations;
 
 namespace GF.AstSystem
 {
-
     /// <summary>
     /// 统一资源管理系统
     /// </summary>
@@ -34,11 +35,11 @@ namespace GF.AstSystem
 
         [SerializeField] private ResourceBackend _defaultBackend = ResourceBackend.YooAsset;
         
-        // 资源句柄缓存
-        private Dictionary<string, IResourceHandle> _handleCache = new Dictionary<string, IResourceHandle>();
+        // 资源引用数据缓存 - 按包名和地址组织
+        private Dictionary<string, Dictionary<string, AstRefData>> _refDataCache = new Dictionary<string, Dictionary<string, AstRefData>>();
         
-        // 场景卸载句柄集合
-        private Dictionary<Scene, List<IResourceHandle>> _sceneHandles = new Dictionary<Scene, List<IResourceHandle>>();
+        // 场景资源引用数据
+        private Dictionary<Scene, List<AstRefData>> _sceneRefData = new Dictionary<Scene, List<AstRefData>>();
 
         private void Awake()
         {
@@ -68,16 +69,16 @@ namespace GF.AstSystem
         /// </summary>
         private void OnSceneUnloaded(Scene scene)
         {
-            if (_sceneHandles.TryGetValue(scene, out var handles))
+            if (_sceneRefData.TryGetValue(scene, out var refDataList))
             {
-                foreach (var handle in handles)
+                foreach (var refData in refDataList)
                 {
-                    if (handle.UnloadMode == UnloadMode.SceneUnload)
+                    if (refData.UnloadMode == UnloadMode.SceneUnload)
                     {
-                        handle.Release();
+                        refData.Release();
                     }
                 }
-                _sceneHandles.Remove(scene);
+                _sceneRefData.Remove(scene);
             }
         }
 
@@ -90,17 +91,33 @@ namespace GF.AstSystem
         }
 
         /// <summary>
-        /// 异步加载资源
+        /// 异步加载资源（使用默认后端）
         /// </summary>
-        public async Task<IResourceHandle> LoadAssetAsync<T>(string address, UnloadMode unloadMode = UnloadMode.None, ResourceBackend? backend = null) where T : UnityEngine.Object
+        public async Task<T> LoadAssetAsync<T>(string address, UnloadMode unloadMode = UnloadMode.None, CancellationToken cancellationToken = default) where T : UnityEngine.Object
         {
-            return await LoadAssetAsync(address, typeof(T), unloadMode, backend);
+            return await LoadAssetAsync<T>(address, unloadMode, _defaultBackend, cancellationToken);
         }
 
         /// <summary>
-        /// 异步加载资源
+        /// 异步加载资源（指定后端）
         /// </summary>
-        public async Task<IResourceHandle> LoadAssetAsync(string address, Type type = null, UnloadMode unloadMode = UnloadMode.None, ResourceBackend? backend = null)
+        public async Task<T> LoadAssetAsync<T>(string address, UnloadMode unloadMode, ResourceBackend backend, CancellationToken cancellationToken = default) where T : UnityEngine.Object
+        {
+            return await LoadAssetAsync<T>(address, unloadMode, backend, null, cancellationToken);
+        }
+
+        /// <summary>
+        /// 异步加载资源（YooAsset包名）
+        /// </summary>
+        public async Task<T> LoadAssetAsync<T>(string address, UnloadMode unloadMode, string packageName, CancellationToken cancellationToken = default) where T : UnityEngine.Object
+        {
+            return await LoadAssetAsync<T>(address, unloadMode, ResourceBackend.YooAsset, packageName, cancellationToken);
+        }
+
+        /// <summary>
+        /// 异步加载资源（完整参数）
+        /// </summary>
+        public async Task<T> LoadAssetAsync<T>(string address, UnloadMode unloadMode, ResourceBackend backend, string packageName = null, CancellationToken cancellationToken = default) where T : UnityEngine.Object
         {
             if (string.IsNullOrEmpty(address))
             {
@@ -108,25 +125,182 @@ namespace GF.AstSystem
                 return null;
             }
 
-            // 检查缓存
-            string cacheKey = $"{address}_{type?.Name ?? "Object"}";
-            if (_handleCache.TryGetValue(cacheKey, out var cachedHandle))
+            var cacheKey = GetCacheKey(address, typeof(T), backend, packageName);
+            var refData = GetOrCreateRefData(cacheKey, address, typeof(T), backend, packageName, unloadMode);
+
+            if (refData != null)
             {
-                cachedHandle.AddRef();
-                return cachedHandle;
+                // 检查句柄有效性
+                if (!IsHandleValid(refData))
+                {
+                    throw new Exception("资源引用异常");
+                }
+
+                // 等待加载完成
+                await WaitForHandleCompletion(refData, cancellationToken);
+
+                refData.AddRef();
+                return GetAssetFromRefData<T>(refData);
             }
 
-            var targetBackend = backend ?? _defaultBackend;
-            IResourceHandle handle = null;
+            return null;
+        }
 
-            switch (targetBackend)
+        /// <summary>
+        /// 批量异步加载资源
+        /// </summary>
+        public async Task<List<T>> LoadAssetsAsync<T>(List<string> addresses, UnloadMode unloadMode = UnloadMode.None, CancellationToken cancellationToken = default) where T : UnityEngine.Object
+        {
+            var tasks = new List<Task<T>>();
+            foreach (var address in addresses)
+            {
+                tasks.Add(LoadAssetAsync<T>(address, unloadMode, cancellationToken));
+            }
+            
+            var assets = await Task.WhenAll(tasks);
+            return new List<T>(assets);
+        }
+
+        /// <summary>
+        /// 批量异步加载资源（指定后端）
+        /// </summary>
+        public async Task<List<T>> LoadAssetsAsync<T>(List<string> addresses, UnloadMode unloadMode, ResourceBackend backend, CancellationToken cancellationToken = default) where T : UnityEngine.Object
+        {
+            var tasks = new List<Task<T>>();
+            foreach (var address in addresses)
+            {
+                tasks.Add(LoadAssetAsync<T>(address, unloadMode, backend, cancellationToken));
+            }
+            
+            var assets = await Task.WhenAll(tasks);
+            return new List<T>(assets);
+        }
+
+        /// <summary>
+        /// 批量异步加载资源（YooAsset包名）
+        /// </summary>
+        public async Task<List<T>> LoadAssetsAsync<T>(List<string> addresses, UnloadMode unloadMode, string packageName, CancellationToken cancellationToken = default) where T : UnityEngine.Object
+        {
+            var tasks = new List<Task<T>>();
+            foreach (var address in addresses)
+            {
+                tasks.Add(LoadAssetAsync<T>(address, unloadMode, packageName, cancellationToken));
+            }
+            
+            var assets = await Task.WhenAll(tasks);
+            return new List<T>(assets);
+        }
+
+        /// <summary>
+        /// 释放资源
+        /// </summary>
+        public void ReleaseAsset<T>(string address, ResourceBackend? backend = null, string packageName = null)
+        {
+            var targetBackend = backend ?? _defaultBackend;
+            var cacheKey = GetCacheKey(address, typeof(T), targetBackend, packageName);
+            ReleaseAssetByCacheKey(cacheKey);
+        }
+
+        /// <summary>
+        /// 释放包内所有资源
+        /// </summary>
+        public void ReleasePackage(string packageName)
+        {
+            if (_refDataCache.TryGetValue(packageName, out var packageCache))
+            {
+                foreach (var refData in packageCache.Values)
+                {
+                    refData.ForceRelease();
+                }
+                packageCache.Clear();
+            }
+        }
+
+        /// <summary>
+        /// 清空所有资源
+        /// </summary>
+        public void ClearAll()
+        {
+            foreach (var packageCache in _refDataCache.Values)
+            {
+                foreach (var refData in packageCache.Values)
+                {
+                    refData.ForceRelease();
+                }
+                packageCache.Clear();
+            }
+            _refDataCache.Clear();
+            _sceneRefData.Clear();
+        }
+
+        /// <summary>
+        /// 获取资源统计信息
+        /// </summary>
+        public void GetResourceStats(out int totalRefData, out int activeRefData)
+        {
+            totalRefData = 0;
+            activeRefData = 0;
+
+            foreach (var packageCache in _refDataCache.Values)
+            {
+                totalRefData += packageCache.Count;
+                foreach (var refData in packageCache.Values)
+                {
+                    if (refData.RefCount > 0)
+                    {
+                        activeRefData++;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 获取缓存键
+        /// </summary>
+        private string GetCacheKey(string address, Type assetType, ResourceBackend backend, string packageName)
+        {
+            var backendStr = backend.ToString();
+            var typeStr = assetType?.Name ?? "Object";
+            var packageStr = packageName ?? "default";
+            return $"{backendStr}_{packageStr}_{address}_{typeStr}";
+        }
+
+        /// <summary>
+        /// 获取或创建资源引用数据
+        /// </summary>
+        private AstRefData GetOrCreateRefData(string cacheKey, string address, Type assetType, ResourceBackend backend, string packageName, UnloadMode unloadMode)
+        {
+            var packageKey = packageName ?? backend.ToString();
+            
+            if (!_refDataCache.TryGetValue(packageKey, out var packageCache))
+            {
+                packageCache = new Dictionary<string, AstRefData>();
+                _refDataCache[packageKey] = packageCache;
+            }
+
+            if (packageCache.TryGetValue(cacheKey, out var existingRefData))
+            {
+                return existingRefData;
+            }
+
+            // 创建新的资源引用数据
+            var refData = new AstRefData
+            {
+                BackendType = backend,
+                PackageName = packageName,
+                AssetType = assetType,
+                UnloadMode = unloadMode
+            };
+
+            // 根据后端类型创建句柄
+            switch (backend)
             {
                 case ResourceBackend.YooAsset:
-                    handle = await LoadAssetAsyncWithYooAsset(address, type, unloadMode);
+                    CreateYooAssetHandle(refData, address, assetType, packageName);
                     break;
                 case ResourceBackend.Addressables:
 #if UNITY_ADDRESSABLES
-                    handle = await LoadAssetAsyncWithAddressables(address, type, unloadMode);
+                    CreateAddressablesHandle(refData, address, assetType);
 #else
                     Debug.LogError("Addressables is not available in this project");
                     return null;
@@ -134,221 +308,130 @@ namespace GF.AstSystem
                     break;
             }
 
-            if (handle != null)
+            if (IsHandleValid(refData))
             {
-                _handleCache[cacheKey] = handle;
+                packageCache[cacheKey] = refData;
                 
                 // 如果是场景卸载模式，添加到场景句柄集合
                 if (unloadMode == UnloadMode.SceneUnload)
                 {
                     var currentScene = SceneManager.GetActiveScene();
-                    if (!_sceneHandles.ContainsKey(currentScene))
+                    if (!_sceneRefData.ContainsKey(currentScene))
                     {
-                        _sceneHandles[currentScene] = new List<IResourceHandle>();
+                        _sceneRefData[currentScene] = new List<AstRefData>();
                     }
-                    _sceneHandles[currentScene].Add(handle);
-                }
-                
-                // 自动释放监听
-                if (unloadMode == UnloadMode.AutoRelease)
-                {
-                    handle.Completed += OnAutoReleaseCompleted;
+                    _sceneRefData[currentScene].Add(refData);
                 }
             }
 
-            return handle;
+            return refData;
         }
 
         /// <summary>
-        /// 异步加载资源并直接返回资源对象
+        /// 创建YooAsset句柄
         /// </summary>
-        public async Task<T> LoadAssetDirectAsync<T>(string address, UnloadMode unloadMode = UnloadMode.None, ResourceBackend? backend = null) where T : UnityEngine.Object
+        private void CreateYooAssetHandle(AstRefData refData, string address, Type assetType, string packageName)
         {
-            var handle = await LoadAssetAsync<T>(address, unloadMode, backend);
-            return await handle.GetAssetAsync<T>();
-        }
-
-        /// <summary>
-        /// 批量异步加载资源
-        /// </summary>
-        public async Task<List<IResourceHandle>> LoadAssetsAsync<T>(List<string> addresses, UnloadMode unloadMode = UnloadMode.None, ResourceBackend? backend = null) where T : UnityEngine.Object
-        {
-            var tasks = new List<Task<IResourceHandle>>();
-            foreach (var address in addresses)
+            var package =  YooAssets.TryGetPackage(packageName);
+            if (package == null)
             {
-                tasks.Add(LoadAssetAsync<T>(address, unloadMode, backend));
+                Debug.LogError($"YooAsset package not found: {packageName}");
+                return;
             }
-            
-            var handles = await Task.WhenAll(tasks);
-            return new List<IResourceHandle>(handles);
-        }
 
-        /// <summary>
-        /// 批量异步加载资源并直接返回资源对象
-        /// </summary>
-        public async Task<List<T>> LoadAssetsDirectAsync<T>(List<string> addresses, UnloadMode unloadMode = UnloadMode.None, ResourceBackend? backend = null) where T : UnityEngine.Object
-        {
-            var handles = await LoadAssetsAsync<T>(addresses, unloadMode, backend);
-            var tasks = new List<Task<T>>();
-            
-            foreach (var handle in handles)
+            if (assetType != null)
             {
-                tasks.Add(handle.GetAssetAsync<T>());
-            }
-            
-            var assets = await Task.WhenAll(tasks);
-            return new List<T>(assets);
-        }
-
-        private void OnAutoReleaseCompleted(IResourceHandle handle)
-        {
-            // 可以在这里添加自动释放逻辑
-            // 比如延迟释放或基于使用频率的释放策略
-        }
-
-        /// <summary>
-        /// 使用YooAsset加载资源
-        /// </summary>
-        private async Task<IResourceHandle> LoadAssetAsyncWithYooAsset(string address, Type type, UnloadMode unloadMode)
-        {
-            AssetHandle yooHandle;
-            
-            if (type != null)
-            {
-                yooHandle = YooAssets.LoadAssetAsync(address, type);
+                refData.HandleYoo = package.LoadAssetAsync(address, assetType);
             }
             else
             {
-                yooHandle = YooAssets.LoadAssetAsync<UnityEngine.Object>(address);
+                refData.HandleYoo = package.LoadAssetAsync<UnityEngine.Object>(address);
             }
-
-            var handle = new YooAssetHandle(yooHandle, address, unloadMode);
-            return handle;
         }
 
 #if UNITY_ADDRESSABLES
         /// <summary>
-        /// 使用Addressables加载资源
+        /// 创建Addressables句柄
         /// </summary>
-        private async Task<IResourceHandle> LoadAssetAsyncWithAddressables(string address, Type type, UnloadMode unloadMode)
+        private void CreateAddressablesHandle(AstRefData refData, string address, Type assetType)
         {
-            var addressablesHandle = Addressables.LoadAssetAsync<UnityEngine.Object>(address);
-            var handle = new AddressablesHandle(addressablesHandle, address, unloadMode);
-            return handle;
+            refData.HandleAA = Addressables.LoadAssetAsync<UnityEngine.Object>(address);
         }
 #endif
 
         /// <summary>
-        /// 同步加载资源（不推荐使用）
+        /// 检查句柄是否有效
         /// </summary>
-        public IResourceHandle LoadAssetSync<T>(string address, UnloadMode unloadMode = UnloadMode.None, ResourceBackend? backend = null) where T : UnityEngine.Object
+        private bool IsHandleValid(AstRefData refData)
         {
-            var task = LoadAssetAsync<T>(address, unloadMode, backend);
-            task.Wait();
-            return task.Result;
-        }
-
-        /// <summary>
-        /// 释放资源句柄
-        /// </summary>
-        public void ReleaseHandle(IResourceHandle handle)
-        {
-            handle?.Release();
-            
-            // 从缓存中移除引用计数为0的句柄
-            if (handle?.RefCount <= 0)
+            switch (refData.BackendType)
             {
-                string cacheKey = $"{handle.Address}_{handle.Asset?.GetType().Name ?? "Object"}";
-                _handleCache.Remove(cacheKey);
+                case ResourceBackend.YooAsset:
+                    return refData.HandleYoo.IsValid;
+                case ResourceBackend.Addressables:
+#if UNITY_ADDRESSABLES
+                    return refData.HandleAA.IsValid();
+#endif
+                    return false;
+                default:
+                    return false;
             }
         }
 
         /// <summary>
-        /// 预加载资源
+        /// 等待句柄完成
         /// </summary>
-        public async Task PreloadAssetsAsync(List<string> addresses, ResourceBackend? backend = null)
+        private async Task WaitForHandleCompletion(AstRefData refData, CancellationToken cancellationToken)
         {
-            var tasks = new List<Task<IResourceHandle>>();
-            foreach (var address in addresses)
+            switch (refData.BackendType)
             {
-                tasks.Add(LoadAssetAsync(address, null, UnloadMode.None, backend));
+                case ResourceBackend.YooAsset:
+                    if (!refData.HandleYoo.IsDone)
+                    {
+                        await refData.HandleYoo.Task;
+                    }
+                    break;
+                case ResourceBackend.Addressables:
+//#if UNITY_ADDRESSABLES
+                    if (!refData.HandleAA.IsDone)
+                    {
+                        await refData.HandleAA.Task;
+                    }
+//#endif
+                    break;
             }
-            
-            await Task.WhenAll(tasks);
         }
 
         /// <summary>
-        /// 预加载资源并等待所有资源加载完成
+        /// 从引用数据获取资源
         /// </summary>
-        public async Task PreloadAndWaitAssetsAsync(List<string> addresses, ResourceBackend? backend = null)
+        private T GetAssetFromRefData<T>(AstRefData refData) where T : UnityEngine.Object
         {
-            var handles = new List<IResourceHandle>();
-            
-            foreach (var address in addresses)
+            switch (refData.BackendType)
             {
-                var handle = await LoadAssetAsync(address, null, UnloadMode.None, backend);
-                if (handle != null)
+                case ResourceBackend.YooAsset:
+                    return refData.HandleYoo.AssetObject as T;
+                case ResourceBackend.Addressables:
+#if UNITY_ADDRESSABLES
+                    return refData.HandleAA.Result as T;
+#endif
+                    return null;
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>
+        /// 通过缓存键释放资源
+        /// </summary>
+        private void ReleaseAssetByCacheKey(string cacheKey)
+        {
+            foreach (var packageCache in _refDataCache.Values)
+            {
+                if (packageCache.TryGetValue(cacheKey, out var refData))
                 {
-                    handles.Add(handle);
-                }
-            }
-            
-            var waitTasks = new List<Task>();
-            foreach (var handle in handles)
-            {
-                waitTasks.Add(handle.WaitForCompletionAsync());
-            }
-            
-            await Task.WhenAll(waitTasks);
-        }
-
-        /// <summary>
-        /// 清理所有资源
-        /// </summary>
-        public void ClearAll()
-        {
-            foreach (var handle in _handleCache.Values)
-            {
-                handle.Dispose();
-            }
-            _handleCache.Clear();
-            _sceneHandles.Clear();
-        }
-
-        /// <summary>
-        /// 清理未使用的资源
-        /// </summary>
-        public void ClearUnused()
-        {
-            var toRemove = new List<string>();
-            foreach (var kvp in _handleCache)
-            {
-                if (kvp.Value.RefCount <= 0)
-                {
-                    kvp.Value.Dispose();
-                    toRemove.Add(kvp.Key);
-                }
-            }
-
-            foreach (var key in toRemove)
-            {
-                _handleCache.Remove(key);
-            }
-        }
-
-        /// <summary>
-        /// 获取资源统计信息
-        /// </summary>
-        public void GetResourceStats(out int totalHandles, out int activeHandles)
-        {
-            totalHandles = _handleCache.Count;
-            activeHandles = 0;
-            
-            foreach (var handle in _handleCache.Values)
-            {
-                if (handle.RefCount > 0)
-                {
-                    activeHandles++;
+                    refData.Release();
+                    break;
                 }
             }
         }

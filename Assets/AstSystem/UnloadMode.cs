@@ -5,8 +5,19 @@ namespace GF.AstSystem
     /// </summary>
     public enum UnloadMode
     {
-        None,           // 手动卸载
-        AutoRelease,    // 自动卸载（引用计数为0时）
-        SceneUnload     // 过场景卸载
+        /// <summary>
+        /// 不自动卸载
+        /// </summary>
+        None = 0,
+        
+        /// <summary>
+        /// 场景卸载时释放
+        /// </summary>
+        SceneUnload,
+        
+        /// <summary>
+        /// 自动释放
+        /// </summary>
+        AutoRelease
     }
 } 
