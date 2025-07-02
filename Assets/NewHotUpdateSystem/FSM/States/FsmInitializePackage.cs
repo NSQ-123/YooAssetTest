@@ -106,9 +106,12 @@ namespace GF.HotUpdateSystem.New
             createParameters.WebServerFileSystemParameters = WechatFileSystemCreater.CreateFileSystemParameters(packageRoot, remoteServices);
             return package.InitializeAsync(createParameters);
 #else
-            var createParameters = new WebPlayModeParameters();
-            createParameters.WebServerFileSystemParameters = FileSystemParameters.CreateDefaultWebServerFileSystemParameters();
-            return package.InitializeAsync(createParameters);
+            var createParameters1 = new WebPlayModeParameters();
+            string defaultHostServer1 = serverConfig.GetFullServerURL(false);
+            string fallbackHostServer1 = serverConfig.GetFullServerURL(true);
+            IRemoteServices remoteServices1 = new RemoteServices(defaultHostServer1, fallbackHostServer1);
+            createParameters1.WebServerFileSystemParameters = FileSystemParameters.CreateDefaultWebRemoteFileSystemParameters(remoteServices1,disableUnityWebCache:true);
+            return package.InitializeAsync(createParameters1);
 #endif
         }
 

@@ -31,7 +31,11 @@ namespace GF.HotUpdateSystem.New
             }
             else
             {
+#if UNITY_WEBGL
+                _machine.ChangeState<FsmStartGame>();  
+#else
                 _machine.ChangeState<FsmCreateDownloader>();
+#endif
             }
         }
     }

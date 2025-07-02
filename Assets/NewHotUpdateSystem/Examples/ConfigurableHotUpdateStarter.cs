@@ -205,13 +205,19 @@ namespace GF.HotUpdateSystem.New
 
         IEnumerator Load(ResourcePackage package)
         {
-            AssetHandle handle = package.LoadAssetAsync<GameObject>("Assets/Res/Prefabs/Sphere.prefab");
+            string location = "Assets/Res/Prefabs/Sphere.prefab";
+            bool isNeedDownload = package.IsNeedDownloadFromRemote(location);
+            if (isNeedDownload)
+            {
+                Debug.Log($"资源需要下载：{location}");
+            }
+            AssetHandle handle = package.LoadAssetAsync<GameObject>(location);
             yield return handle;
             GameObject go = handle.InstantiateSync();
             Debug.Log($"Prefab name is {go.name}");
         }
         
-        
+         
         
         
         /// <summary>
